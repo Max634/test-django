@@ -1,42 +1,48 @@
+```groovy
 pipeline {
   agent any
 
   environment {
-    // Jenkins AWS credential ID
-    AWS_CREDENTIALS = 'aws-creds'
     AWS_REGION      = 'us-east-1'
+    AWS_CREDENTIALS = 'aws-creds'
     ECR_ACCOUNT     = '842112866380'
+    REPO_URI        = "${ECR_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
     IMAGE_NAME      = 'test:django'
-    ECR_REPO        = "${ECR_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-    FULL_TAG        = "${ECR_REPO}/${IMAGE_NAME}"
+    IMAGE_TAG       = "${REPO_URI}/${IMAGE_NAME}"
   }
 
   stages {
     stage('Checkout') {
       steps {
-        git branch: 'main',
-            url: 'https://github.com/Max634/test-django'
+        git branch: 'main', url: 'https://github.com/Max634/test-django'
+      }
+    }
+
+    stage('Install AWS CLI') {
+      steps {
+        powershell '''
+          Write-Output "Downloading AWS CLI MSI..."
+          $msi = "$Env:TEMP\\AWSCLIV2.msi"
+          Invoke-WebRequest -Uri "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile $msi
+
+          Write-Output "Installing AWS CLI..."
+          Start-Process msiexec.exe -Wait -ArgumentList "/i", $msi, "/qn"
+
+          Remove-Item $msi
+
+          Write-Output "AWS CLI version:"
+          aws --version
+        '''
       }
     }
 
     stage('Login to ECR') {
       steps {
-        // withAWS only injects keys—does not install aws cli or modules
         withAWS(region: "${AWS_REGION}", credentials: "${AWS_CREDENTIALS}") {
           powershell '''
-            # Ensure PSGallery is trusted & NuGet provider is available (non-interactive)
-            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
-            if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
-              Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser
-            }
-
-            # Install AWS.Tools.ECR without prompting
-            Install-Module -Name AWS.Tools.ECR -Force -AllowClobber -Scope CurrentUser -AcceptLicense
-
-            # Import and run the login cmdlet
-            Import-Module AWS.Tools.ECR
-            $pw = Get-ECRLoginPassword -Region $Env:AWS_REGION
-            docker login --username AWS --password $pw $Env:ECR_REPO
+            Write-Output "Logging into ECR..."
+            $password = aws ecr get-login-password --region $Env:AWS_REGION
+            docker login --username AWS --password $password $Env:REPO_URI
           '''
         }
       }
@@ -44,28 +50,29 @@ pipeline {
 
     stage('Build Docker Image') {
       steps {
-        powershell """
-          docker build -t ${IMAGE_NAME} .
-          docker tag ${IMAGE_NAME} ${FULL_TAG}
-        """
+        powershell '''
+          docker build -t $Env:IMAGE_NAME .
+          docker tag $Env:IMAGE_NAME $Env:IMAGE_TAG
+        '''
       }
     }
 
     stage('Push Docker Image') {
       steps {
-        powershell """
-          docker push ${FULL_TAG}
-        """
+        powershell '''
+          docker push $Env:IMAGE_TAG
+        '''
       }
     }
   }
 
   post {
     success {
-      echo "✅ Successfully built & pushed: ${FULL_TAG}"
+      echo "✅ Successfully built & pushed: ${IMAGE_TAG}"
     }
     failure {
-      echo "❌ Pipeline failed—check the console output above for details."
+      echo "❌ Pipeline failed—check the console logs for details."
     }
   }
 }
+```
