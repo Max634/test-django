@@ -2,7 +2,7 @@ pipeline {
   agent any
 
   environment {
-    // Make sure your AWS credentials ID matches what you have in Jenkins
+    // Jenkins AWS credential ID
     AWS_CREDENTIALS = 'aws-creds'
     AWS_REGION      = 'us-east-1'
     ECR_ACCOUNT     = '842112866380'
@@ -14,23 +14,29 @@ pipeline {
   stages {
     stage('Checkout') {
       steps {
-        git branch: 'main', url: 'https://github.com/Max634/test-django'
+        git branch: 'main',
+            url: 'https://github.com/Max634/test-django'
       }
     }
 
     stage('Login to ECR') {
       steps {
+        // withAWS only injects keys—does not install aws cli or modules
         withAWS(region: "${AWS_REGION}", credentials: "${AWS_CREDENTIALS}") {
           powershell '''
-            # Install just the ECR cmdlet into the current user context
-            Install-Module -Name AWS.Tools.ECR -Force -Scope CurrentUser -AllowClobber
+            # Ensure PSGallery is trusted & NuGet provider is available (non-interactive)
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+            if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
+              Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser
+            }
 
-            # Load the module
+            # Install AWS.Tools.ECR without prompting
+            Install-Module -Name AWS.Tools.ECR -Force -AllowClobber -Scope CurrentUser -AcceptLicense
+
+            # Import and run the login cmdlet
             Import-Module AWS.Tools.ECR
-
-            # Fetch a login password and authenticate Docker
-            $password = Get-ECRLoginPassword -Region $Env:AWS_REGION
-            docker login --username AWS --password $password $Env:ECR_REPO
+            $pw = Get-ECRLoginPassword -Region $Env:AWS_REGION
+            docker login --username AWS --password $pw $Env:ECR_REPO
           '''
         }
       }
@@ -56,10 +62,10 @@ pipeline {
 
   post {
     success {
-      echo "✅ Build and push succeeded: ${FULL_TAG}"
+      echo "✅ Successfully built & pushed: ${FULL_TAG}"
     }
     failure {
-      echo "❌ Build or push failed—check console output for errors."
+      echo "❌ Pipeline failed—check the console output above for details."
     }
   }
 }
