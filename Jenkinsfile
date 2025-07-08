@@ -4,7 +4,7 @@ pipeline
   stages{
     stage('Checkout'){
       steps{
-        git branch: 'main', url: 'https://github.com/Max634/test-django'
+        git branch: 'main', url: 'https://github.com/Max634/test-django.git'
       }
     }
     stage('Login to ECR'){
