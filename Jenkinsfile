@@ -20,16 +20,18 @@ pipeline {
     stage('Install AWS CLI') {
       steps {
         powershell '''
-          Write-Output "Downloading AWS CLI MSI…"
-          $msi = "$Env:TEMP\\AWSCLIV2.msi"
-          Invoke-WebRequest -Uri "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile $msi
+          Write-Output "Downloading AWS CLI ZIP..."
+          $zip = "$Env:TEMP\\awscli.zip"
+          Invoke-WebRequest -Uri "https://awscli.amazonaws.com/awscli-exe-windows-x86_64.zip" -OutFile $zip
 
-          Write-Output "Installing AWS CLI…"
-          Start-Process msiexec.exe -Wait -ArgumentList "/i", $msi, "/qn"
-          Remove-Item $msi
+          Write-Output "Extracting AWS CLI..."
+          Expand-Archive -Path $zip -DestinationPath "$Env:TEMP\\awscli" -Force
+          Remove-Item $zip
 
+          # Point to the extracted aws.exe
+          $Env:AWS_CLI_EXE = "$Env:TEMP\\awscli\\aws\\aws.exe"
           Write-Output "AWS CLI version:"
-          aws --version
+          & $Env:AWS_CLI_EXE --version
         '''
       }
     }
@@ -38,9 +40,9 @@ pipeline {
       steps {
         withAWS(region: "${AWS_REGION}", credentials: "${AWS_CREDENTIALS}") {
           powershell '''
-            Write-Output "Logging into ECR…"
-            $password = aws ecr get-login-password --region $Env:AWS_REGION
-            docker login --username AWS --password $password $Env:REPO_URI
+            Write-Output "Logging into ECR..."
+            & $Env:AWS_CLI_EXE ecr get-login-password --region $Env:AWS_REGION |
+              docker login --username AWS --password-stdin $Env:REPO_URI
           '''
         }
       }
