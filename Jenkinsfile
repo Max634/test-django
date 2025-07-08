@@ -4,7 +4,7 @@ pipeline
   stages{
     stage('Checkout'){
       steps{
-        git branch: 'main', url: 'https://github.com/Max634/test-django.git'
+        git branch: 'main', url: 'https://github.com/Max634/test-django'
       }
     }
     stage('Login to ECR'){
@@ -12,7 +12,7 @@ pipeline
         withAWS(region:'us-east-1',credentials: 'aws-creds'){
           powershell '''
           $password = aws ecr get-login-password --region us-east-1
-          docker login --username AWS --password $password 842112866380.dkr.ecr.us-east-1.amazonaws.com/test
+          docker login --username AWS --password $password 842112866380.dkr.ecr.us-east-1.amazonaws.com
           '''
         }
       }
