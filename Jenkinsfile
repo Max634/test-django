@@ -1,36 +1,65 @@
-pipeline
-{
+pipeline {
   agent any
-  stages{
-    stage('Checkout'){
-      steps{
+
+  environment {
+    // Make sure your AWS credentials ID matches what you have in Jenkins
+    AWS_CREDENTIALS = 'aws-creds'
+    AWS_REGION      = 'us-east-1'
+    ECR_ACCOUNT     = '842112866380'
+    IMAGE_NAME      = 'test:django'
+    ECR_REPO        = "${ECR_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+    FULL_TAG        = "${ECR_REPO}/${IMAGE_NAME}"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
         git branch: 'main', url: 'https://github.com/Max634/test-django'
       }
     }
-    stage('Login to ECR'){
-      steps{
-        withAWS(region: 'us-east-1',credentials: 'aws-creds'){
+
+    stage('Login to ECR') {
+      steps {
+        withAWS(region: "${AWS_REGION}", credentials: "${AWS_CREDENTIALS}") {
           powershell '''
-          $password = aws ecr get-login-password --region us-east-1
-          docker login --username AWS --password $password 842112866380.dkr.ecr.us-east-1.amazonaws.com
+            # Install just the ECR cmdlet into the current user context
+            Install-Module -Name AWS.Tools.ECR -Force -Scope CurrentUser -AllowClobber
+
+            # Load the module
+            Import-Module AWS.Tools.ECR
+
+            # Fetch a login password and authenticate Docker
+            $password = Get-ECRLoginPassword -Region $Env:AWS_REGION
+            docker login --username AWS --password $password $Env:ECR_REPO
           '''
         }
       }
     }
-    stage('Build Docker Image'){
-      steps{
-        powershell '''
-        docker build -t test:django .
-        docker tag test:django 842112866380.dkr.ecr.us-east-1.amazonaws.com/test:django
-        '''
+
+    stage('Build Docker Image') {
+      steps {
+        powershell """
+          docker build -t ${IMAGE_NAME} .
+          docker tag ${IMAGE_NAME} ${FULL_TAG}
+        """
       }
     }
-    stage('Push Docker Image'){
-      steps{
-        powershell '''
-        docker push 842112866380.dkr.ecr.us-east-1.amazonaws.com/test:django
-        '''
+
+    stage('Push Docker Image') {
+      steps {
+        powershell """
+          docker push ${FULL_TAG}
+        """
       }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ Build and push succeeded: ${FULL_TAG}"
+    }
+    failure {
+      echo "❌ Build or push failed—check console output for errors."
     }
   }
 }
